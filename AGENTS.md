@@ -4,7 +4,7 @@ Read and follow `../AGENTS.md` before working in this repository.
 
 ## Role
 
-This repository supplies the reusable editorial session and backend-integration runtime for DGP authoring applications. The current Studio implementation consumes this role; application-specific presentation does not belong here.
+This repository supplies the reusable editorial session and backend-integration runtime for DGP authoring applications. Sibling `dgp-studio` consumes this role; application-specific presentation does not belong here.
 
 ## Dependencies
 
@@ -34,6 +34,6 @@ This repository supplies the reusable editorial session and backend-integration 
 
 - Legacy headless editorial sources: `D:\Projects\GitHub\digital-service-ui-builder\src\react\workspace\context`, including provider, backend, memory, boot, cache, refresh, autosave, and live-adapter behavior.
 - Legacy canvas mutation behavior may be extracted where it is headless; do not migrate `src\react\workspace\components`, React Flow adapters, or fallback-editor presentation.
-- Current Studio implementation and authoritative visual reference: `D:\Projects\GitHub\service-builder`.
+- Studio destination: sibling `../dgp-studio`; code and history migration source: `D:\Projects\GitHub\service-builder`.
 - Backend reference: sibling `../dgp-sdk` at `D:\Projects\GitHub\elqora\digital-goods-protocol\dgp-sdk`.
-- Sibling repositories: `../dgp-spec`, `../dgp-core`, `../dgp-validation`, and `../dgp-ordering`.
+- Sibling repositories: `../dgp-spec`, `../dgp-core`, `../dgp-validation`, `../dgp-ordering`, and `../dgp-studio`.
