@@ -33,6 +33,15 @@ This repository supplies the reusable editorial session and backend-integration 
 
 Spec controls document contracts, Core controls interpretation primitives, and Validation controls diagnostics. Workspace composes those concerns without redefining them.
 
+Ratified means the versioned schema, required fixtures, rationale, and stable status are merged into `dgp-spec/main`; released means that ratified Spec version is tagged and published. Workspace may implement ratified unreleased contracts, but stable releases require released versions of its protocol dependencies.
+
+## Change workflow and operations
+
+- Update Workspace after affected Spec, Core/SDK, and Validation changes; do not make it establish contracts needed by lower-level packages.
+- Commit and release this repository independently.
+- This repository has no implementation manifest or operational commands yet. Do not invent install, test, lint, type-check, build, or generation commands.
+- When its toolchain is introduced, document all real commands, supported runtimes, generated-output policy, completion criteria, and checks preventing Ordering, Form Palette, Studio, React Flow, visual-component, legacy-field, and generated-binding drift.
+
 ## References
 
 - Dependencies: siblings `../dgp-spec`, `../dgp-core`, and `../dgp-validation`.
@@ -42,4 +51,4 @@ Spec controls document contracts, Core controls interpretation primitives, and V
 - Studio source evidence: `D:\Projects\GitHub\service-builder`; destination: sibling `../dgp-studio`.
 - Ordering siblings are `../dgp-ordering` and `../dgp-ordering-form-palette`, not dependencies.
 
-This repository remains GPL-3.0.
+This repository remains GPL-3.0-only. Future manifests and source headers must use that exact SPDX identifier.

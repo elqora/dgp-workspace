@@ -30,4 +30,4 @@ Repository scaffold only. Workspace extraction and migration will be planned sep
 
 ## License
 
-GPL-3.0.
+GPL-3.0-only.
