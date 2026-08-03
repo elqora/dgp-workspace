@@ -31,9 +31,9 @@ This repository supplies the reusable editorial session and backend-integration 
 
 ## Authority
 
-Spec controls document contracts, Core controls interpretation primitives, and Validation controls diagnostics. Workspace composes those concerns without redefining them.
+Spec owns shared representation, SDK owns backend domain semantics, Core owns interpretation primitives, and Validation owns diagnostics. Legacy editorial behavior is evidence to retain or improve. Workspace composes those concerns without redefining them.
 
-Ratified means the versioned schema, required fixtures, rationale, and stable status are merged into `dgp-spec/main`; released means that ratified Spec version is tagged and published. Workspace may implement ratified unreleased contracts, but stable releases require released versions of its protocol dependencies.
+Ratified means the versioned plain TypeScript contract, required JSON fixtures, rationale, and stable status are merged into `dgp-spec/main`; generated JSON Schemas must also be current once tooling exists. Released means that ratified Spec version is tagged and published. Workspace may implement ratified unreleased contracts, but stable releases require released versions of its protocol dependencies.
 
 ## Change workflow and operations
 
@@ -45,6 +45,7 @@ Ratified means the versioned schema, required fixtures, rationale, and stable st
 ## References
 
 - Dependencies: siblings `../dgp-spec`, `../dgp-core`, and `../dgp-validation`.
+- Shared-contract guide: sibling `../dgp-spec/CONTRACTS.md`.
 - Backend evidence: sibling `../dgp-sdk`.
 - Legacy headless evidence: `D:\Projects\GitHub\digital-service-ui-builder\src\react\workspace\context`.
 - Do not migrate legacy visual components, React Flow adapters, or fallback-editor presentation.
