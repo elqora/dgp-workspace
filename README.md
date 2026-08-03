@@ -19,6 +19,7 @@ Visual canvases, React Flow adapters, panels, property editors, fallback UI, com
 - [DGP Core](https://github.com/elqora/dgp-core) interprets definitions.
 - [DGP Validation](https://github.com/elqora/dgp-validation) supplies reusable diagnostics.
 - [DGP Ordering](https://github.com/elqora/dgp-ordering) renders customer ordering experiences.
+- [DGP Ordering Form Palette](https://github.com/elqora/dgp-ordering-form-palette) provides the optional Form Palette ordering integration.
 - [DGP Studio](https://github.com/elqora/dgp-studio) provides visual authoring, testing, preview, and publication UX.
 - [DGP SDK](https://github.com/elqora/dgp-sdk) defines backend execution.
 - [Digital Service Engine](https://github.com/timeax/digital-service-engine) is the legacy migration source and behavioral reference.

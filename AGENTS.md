@@ -9,7 +9,7 @@ This repository supplies the reusable editorial session and backend-integration 
 ## Dependencies
 
 - May depend on sibling `dgp-spec`, `dgp-core`, and `dgp-validation`.
-- Must not depend on `dgp-ordering`, Studio, React Flow, or a host application.
+- Must not depend on `dgp-ordering`, `dgp-ordering-form-palette`, Form Palette, Studio, React Flow, or a host application.
 - Optional React context and hooks may wrap the headless runtime, but visual components must remain outside this package.
 - Keep host persistence, transport, authorization enforcement, and live collaboration behind adapters.
 
@@ -36,4 +36,4 @@ This repository supplies the reusable editorial session and backend-integration 
 - Legacy canvas mutation behavior may be extracted where it is headless; do not migrate `src\react\workspace\components`, React Flow adapters, or fallback-editor presentation.
 - Studio destination: sibling `../dgp-studio`; code and history migration source: `D:\Projects\GitHub\service-builder`.
 - Backend reference: sibling `../dgp-sdk` at `D:\Projects\GitHub\elqora\digital-goods-protocol\dgp-sdk`.
-- Sibling repositories: `../dgp-spec`, `../dgp-core`, `../dgp-validation`, `../dgp-ordering`, and `../dgp-studio`.
+- Sibling repositories: `../dgp-spec`, `../dgp-core`, `../dgp-validation`, `../dgp-ordering`, `../dgp-ordering-form-palette`, and `../dgp-studio`.
