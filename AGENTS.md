@@ -39,8 +39,8 @@ Ratified means the versioned plain TypeScript contract, required JSON fixtures, 
 
 - Update Workspace after affected Spec, Core/SDK, and Validation changes; do not make it establish contracts needed by lower-level packages.
 - Commit and release this repository independently.
-- This repository has no implementation manifest or operational commands yet. Do not invent install, test, lint, type-check, build, or generation commands.
-- When its toolchain is introduced, document all real commands, supported runtimes, generated-output policy, completion criteria, and checks preventing Ordering, Form Palette, Studio, React Flow, visual-component, legacy-field, and generated-binding drift.
+- The package supports Node.js 22 or newer. Use `npm install`, `npm test`, `npm run lint`, `npm run typecheck`, `npm run build`, and `npm run check:boundaries`; `npm run check` is the completion command.
+- No generated outputs are committed. Boundary checks must prevent Ordering, Form Palette, Studio, React Flow, visual-component, legacy-field, independently authored contract, and dependency-direction drift.
 
 ## References
 

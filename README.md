@@ -24,9 +24,50 @@ Visual canvases, React Flow adapters, panels, property editors, fallback UI, com
 - [DGP SDK](https://github.com/elqora/dgp-sdk) defines backend execution.
 - [Digital Service Engine](https://github.com/timeax/digital-service-engine) is the legacy migration source and behavioral reference.
 
-## Status
+## Usage
 
-Repository scaffold only. Workspace extraction and migration will be planned separately.
+`WorkspaceRuntime` consumes a host `WorkspaceBackend`. The bundled memory backend
+is intended for development and contract tests.
+
+```ts
+const backend = new MemoryWorkspaceBackend({ definition });
+const workspace = new WorkspaceRuntime(backend, {
+  actor: { id: "editor-1", display_name: "Editor", meta: {} },
+  autosave_ms: 9000,
+});
+
+await workspace.boot();
+workspace.mutate((current) => ({ ...current, name: "Updated product" }));
+await workspace.autosave();
+await workspace.commit("Describe the change");
+```
+
+Publication invokes DGP Validation and returns a structured
+`publication_validation_failed` result without calling the backend when the
+definition or host policies are not publishable. Workspace stores diagnostics
+but owns no diagnostics UI.
+
+Backend adapters own persistence, transport, authentication, authorization
+enforcement, merge policy, and publication side effects. Live adapters emit
+workspace or branch invalidations; hosts remain responsible for polling,
+WebSocket/SSE lifecycles, authentication, and reconnection.
+
+## Toolchain
+
+DGP Workspace supports Node.js 22 or newer and npm with the committed lockfile.
+
+```bash
+npm install
+npm run lint
+npm run typecheck
+npm test
+npm run check:boundaries
+npm run build
+npm run check
+```
+
+No generated outputs are committed. `npm run check` is the repository
+completion command.
 
 ## License
 
