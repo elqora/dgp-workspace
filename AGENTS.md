@@ -31,16 +31,24 @@ This repository supplies the reusable editorial session and backend-integration 
 
 ## Authority
 
-Spec owns shared representation, SDK owns backend domain semantics, Core owns interpretation primitives, and Validation owns diagnostics. Legacy editorial behavior is evidence to retain or improve. Workspace composes those concerns without redefining them.
+Spec owns shared representation, SDK owns backend domain semantics, Core owns interpretation primitives, and Validation owns diagnostics. Proven legacy editorial behavior must be preserved by default. Workspace composes those concerns without redefining them.
 
 Ratified means the versioned plain TypeScript contract, required JSON fixtures, rationale, and stable status are merged into `dgp-spec/main`; generated JSON Schemas must also be current once tooling exists. Released means that ratified Spec version is tagged and published. Workspace may implement ratified unreleased contracts, but stable releases require released versions of its protocol dependencies.
+
+## Migration completeness
+
+- Preserve full headless behavior for boot and hydration, immutable document transitions, drafts, autosave, commits, snapshots, branches, caching, comments, templates, authors, participants, permissions, publication, live updates, and development adapters.
+- Preserve concurrency safety: stale and out-of-order responses, optimistic base revisions, branch changes, live invalidations, and external mutation must not silently corrupt or overwrite editorial state.
+- Moving visual presentation to Studio does not permit dropping its underlying headless state or orchestration behavior.
+- Port or replace applicable legacy provider, slice, cache, persistence, authorization, and live-adapter tests. Real host ports remain replaceable, but the contracts and failure behavior must be proven.
+- Mark missing behavior as **pending migration**. Redesign or retirement requires explicit recorded user approval; do not publish another stable release based only on a memory adapter and happy-path orchestration.
 
 ## Change workflow and operations
 
 - Update Workspace after affected Spec, Core/SDK, and Validation changes; do not make it establish contracts needed by lower-level packages.
 - Commit and release this repository independently.
 - The package supports Node.js 22 or newer. Use `npm install`, `npm test`, `npm run lint`, `npm run typecheck`, `npm run build`, and `npm run check:boundaries`; `npm run check` is the completion command.
-- No generated outputs are committed. Boundary checks must prevent Ordering, Form Palette, Studio, React Flow, visual-component, legacy-field, independently authored contract, and dependency-direction drift.
+- No generated outputs are committed. Boundary checks must prevent Ordering, Form Palette, Studio, React Flow, visual-component, legacy-field, independently authored contract, and dependency-direction drift; they do not establish migration completeness.
 
 ## References
 
