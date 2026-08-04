@@ -12,7 +12,7 @@ import type {
 
 const ACTIONS: WorkspaceAction[] = [
   "document.mutate", "draft.save", "commit.create", "publish", "branch.create",
-  "branch.merge", "branch.delete", "template.write", "comment.write",
+  "branch.set_main", "branch.merge", "branch.delete", "template.write", "comment.write",
 ];
 
 function emptyPermissions(): WorkspacePermissions {
@@ -229,6 +229,7 @@ export class WorkspaceRuntime {
   }
 
   async discard_draft(): Promise<BackendResult<void>> {
+    if (!this.#authorized("draft.save")) return denied("draft.save");
     const branchId = this.#state.current_branch_id;
     if (branchId === null) return { ok: false, error: error("branch_missing", "No branch is selected.") };
     const discarded = await this.#backend.discard_draft(branchId, this.#state.actor.id);
@@ -247,7 +248,7 @@ export class WorkspaceRuntime {
   }
 
   async set_main(branchId: string): Promise<BackendResult<void>> {
-    if (!this.#authorized("branch.create")) return denied("branch.create");
+    if (!this.#authorized("branch.set_main")) return denied("branch.set_main");
     const updated = await this.#backend.set_main(branchId, this.#state.actor.id);
     if (!updated.ok) return updated;
     this.#update({ branches: this.#state.branches.map((branch) => ({ ...branch, main: branch.id === branchId })) });
@@ -323,6 +324,19 @@ export class WorkspaceRuntime {
   disconnect_live(): void { this.#disconnectLive?.(); this.#disconnectLive = undefined; }
 
   async #handleLiveEvent(event: WorkspaceLiveEvent): Promise<void> {
+    const currentIsAffected = event.type === "workspace.invalidate"
+      || event.branch_id === this.#state.current_branch_id;
+    if (currentIsAffected && (this.#state.snapshot_state === "dirty" || this.#state.snapshot_state === "saving")) {
+      this.#update({
+        error: error(
+          "live_update_deferred",
+          "A live update was deferred because the current document has unsaved changes.",
+          true,
+          { event },
+        ),
+      });
+      return;
+    }
     if (event.type === "workspace.invalidate") { await this.refresh(); return; }
     if (event.type === "branch.invalidate") { this.#branchCache.delete(event.branch_id); await this.refresh_branch(event.branch_id); return; }
     this.#branchCache.delete(event.branch_id);

@@ -50,7 +50,9 @@ but owns no diagnostics UI.
 Backend adapters own persistence, transport, authentication, authorization
 enforcement, merge policy, and publication side effects. Live adapters emit
 workspace or branch invalidations; hosts remain responsible for polling,
-WebSocket/SSE lifecycles, authentication, and reconnection.
+WebSocket/SSE lifecycles, authentication, and reconnection. An invalidation
+that targets a dirty or saving document is deferred with a retryable
+`live_update_deferred` error so remote refreshes cannot erase local work.
 
 ## Toolchain
 

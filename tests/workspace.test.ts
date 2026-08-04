@@ -98,11 +98,40 @@ describe("WorkspaceRuntime", () => {
   it("accepts host authorization decisions without defining presentation", async () => {
     const permissions = Object.fromEntries([
       "document.mutate", "draft.save", "commit.create", "publish", "branch.create",
-      "branch.merge", "branch.delete", "template.write", "comment.write",
+      "branch.set_main", "branch.merge", "branch.delete", "template.write", "comment.write",
     ].map((action) => [action, action !== "publish"])) as WorkspacePermissions;
     const runtime = new WorkspaceRuntime(new MemoryWorkspaceBackend({ definition: definition(), permissions }), { actor });
     await runtime.boot();
     expect(await runtime.publish()).toMatchObject({ ok: false, error: { code: "authorization_denied", meta: { action: "publish" } } });
+  });
+
+  it("uses distinct permissions for draft disposal and main-branch changes", async () => {
+    const permissions = Object.fromEntries([
+      "document.mutate", "draft.save", "commit.create", "publish", "branch.create",
+      "branch.set_main", "branch.merge", "branch.delete", "template.write", "comment.write",
+    ].map((action) => [action, action !== "draft.save" && action !== "branch.set_main"])) as WorkspacePermissions;
+    const runtime = new WorkspaceRuntime(new MemoryWorkspaceBackend({ definition: definition(), permissions }), { actor });
+    await runtime.boot();
+    expect(await runtime.discard_draft()).toMatchObject({
+      ok: false, error: { code: "authorization_denied", meta: { action: "draft.save" } },
+    });
+    expect(await runtime.set_main("main")).toMatchObject({
+      ok: false, error: { code: "authorization_denied", meta: { action: "branch.set_main" } },
+    });
+  });
+
+  it("defers live refreshes that would overwrite unsaved changes", async () => {
+    const live = createManualWorkspaceLiveAdapter();
+    const runtime = new WorkspaceRuntime(new MemoryWorkspaceBackend({ definition: definition() }), {
+      actor, live, auto_autosave: false,
+    });
+    await runtime.boot();
+    runtime.mutate((document) => ({ ...document, name: "Local edit" }));
+    live.emit({ type: "workspace.invalidate" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(runtime.state.definition?.name).toBe("Local edit");
+    expect(runtime.state.snapshot_state).toBe("dirty");
+    expect(runtime.state.error).toMatchObject({ code: "live_update_deferred", retryable: true });
   });
 
   it("coordinates templates, comments, subscriptions, and live invalidation", async () => {

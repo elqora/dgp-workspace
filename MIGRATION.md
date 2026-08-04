@@ -9,7 +9,7 @@
 | Publication | snapshot publication flow | Delegate diagnostics to DGP Validation and block the backend publication call unless protocol and host-policy validation are publishable. |
 | Templates/comments | template and comment slices | Retain headless branch-scoped CRUD through backend ports. Presentation remains in Studio. |
 | Authors/participants/permissions | provider slices | Retain hydrated collaboration identity and host authorization decisions. Workspace reports denials but defines no permission UI. |
-| Live collaboration | polling/SSE/WS adapters | Redesign as a transport-neutral invalidation adapter. Hosts own polling, SSE, WebSocket, authentication, and reconnection policy. |
+| Live collaboration | polling/SSE/WS adapters | Redesign as a transport-neutral invalidation adapter. Hosts own polling, SSE, WebSocket, authentication, and reconnection policy; Workspace defers invalidations that would overwrite dirty or saving local state. |
 | Development backend | legacy memory backend | Retain a deterministic in-memory adapter for development and contract tests using canonical v1 documents only. |
 
 Retired: editor snapshots containing canvas/UI state, React Flow, panels,

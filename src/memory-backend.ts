@@ -18,7 +18,7 @@ function fail<T>(code: string, message: string): BackendResult<T> {
 const allPermissions: WorkspacePermissions = {
   "document.mutate": true, "draft.save": true, "commit.create": true,
   publish: true, "branch.create": true, "branch.merge": true,
-  "branch.delete": true, "template.write": true, "comment.write": true,
+  "branch.set_main": true, "branch.delete": true, "template.write": true, "comment.write": true,
 };
 
 export interface MemoryWorkspaceSeed {

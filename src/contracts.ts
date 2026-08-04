@@ -18,7 +18,7 @@ export interface BranchParticipant { actor_id: string; role: string; joined_at: 
 
 export type WorkspaceAction =
   | "document.mutate" | "draft.save" | "commit.create" | "publish"
-  | "branch.create" | "branch.merge" | "branch.delete"
+  | "branch.create" | "branch.set_main" | "branch.merge" | "branch.delete"
   | "template.write" | "comment.write";
 export type WorkspacePermissions = Record<WorkspaceAction, boolean>;
 
