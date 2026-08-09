@@ -7,10 +7,11 @@ const allowed = new Set(["@elqora/dgp-spec", "@elqora/dgp-core", "@elqora/dgp-va
 const errors = [];
 for (const name of Object.keys(pkg.dependencies ?? {})) if (!allowed.has(name)) errors.push(`Forbidden runtime dependency ${name}.`);
 const forbidden = /(?:@elqora\/dgp-ordering|form-palette|react-flow|@xyflow|dgp-studio)/i;
-const canonical = new Set(["ProductDefinition", "ProductField", "HandlerService", "ProductDefinitionDiagnostic"]);
+const canonical = new Set(["ProductDefinition", "ProductField", "ProductFilter", "FieldOption", "ProductNotice", "HandlerService", "ProductDefinitionDiagnostic", "QuantityRule", "FieldValidationRule"]);
 for (const file of (await readdir(path.join(root, "src"), { recursive: true })).filter((entry) => entry.endsWith(".ts"))) {
   const relative = path.join("src", file);
   const text = await readFile(path.join(root, relative), "utf8");
+  if (!text.startsWith("// SPDX-License-Identifier: GPL-3.0-only")) errors.push(`${relative} is missing the exact GPL-3.0-only SPDX header.`);
   const source = ts.createSourceFile(relative, text, ts.ScriptTarget.Latest, true);
   function visit(node) {
     if (ts.isImportDeclaration(node)) {
@@ -21,7 +22,7 @@ for (const file of (await readdir(path.join(root, "src"), { recursive: true })).
     ts.forEachChild(node, visit);
   }
   visit(source);
-  if (/\b(flags|estimates|component)\b/.test(text)) errors.push(`${relative} contains a forbidden legacy field.`);
+  if (/\b(flags|estimates|component|constraints(?:_origin|_overrides)?|valueBy|defaultValue|serviceProps|isMain)\b/.test(text)) errors.push(`${relative} contains a forbidden legacy field or alias.`);
 }
 if (errors.length > 0) throw new Error(`Workspace boundary violations:\n${errors.join("\n")}`);
 console.log("Workspace dependency and source boundaries are valid.");

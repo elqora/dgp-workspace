@@ -8,7 +8,7 @@ import type {
   WorkspaceCommit, WorkspaceDraft,
 } from "./contracts.js";
 
-export interface SaveDraftInput { branch_id: string; actor_id: string; definition: ProductDefinition; base_commit_id: string | null; }
+export interface SaveDraftInput { branch_id: string; actor_id: string; definition: ProductDefinition; editorial_state: import("./contracts.js").WorkspaceEditorialState; base_commit_id: string | null; base_revision: number; }
 export interface CreateCommitInput extends SaveDraftInput { message: string; }
 export interface PublishInput extends CreateCommitInput { validation_revision: number; }
 

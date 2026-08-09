@@ -1,58 +1,65 @@
 # DGP Workspace
 
-DGP Workspace provides the reusable editorial session and backend-integration runtime for authoring applications such as DGP Studio. It owns headless state and orchestration, not the visual editor.
+DGP Workspace is the complete framework-neutral editorial runtime for canonical DGP v1 product definitions. It composes DGP Core's stateful Builder with editing, Canvas state, Selection, Comments, Validation, persistence ports, branches, drafts, commits, snapshots, templates, collaboration invalidation, and publication orchestration.
 
-## Responsibilities
+It contains no React, React Flow, Form Palette, Ordering, Studio, rendering, preview, pricing, charge, fulfillment, or authorization-presentation code. DGP Studio owns those presentation bindings and consumes this package.
 
-- Backend ports, boot, hydration, and workspace session orchestration
-- Headless document state and mutation commands
-- Templates, comments, authors, participants, and host authorization decisions
-- Branches, drafts, commits, snapshots, dirty state, autosave, and publication coordination
-- Branch caching, refresh, persistence, and live-collaboration adapter contracts
-- Invocation and aggregation of DGP Validation results without owning diagnostic rules or presentation
+## Headless authoring
 
-Visual canvases, React Flow adapters, panels, property editors, fallback UI, comments UI, diagnostics consoles, preview, and publication presentation belong to DGP Studio. Customer ordering belongs to DGP Ordering, runtime interpretation belongs to DGP Core, and backend fulfillment belongs to the DGP SDK.
-
-## Ecosystem
-
-- [DGP Spec](https://github.com/elqora/dgp-spec) owns canonical contracts.
-- [DGP Core](https://github.com/elqora/dgp-core) interprets definitions.
-- [DGP Validation](https://github.com/elqora/dgp-validation) supplies reusable diagnostics.
-- [DGP Ordering](https://github.com/elqora/dgp-ordering) renders customer ordering experiences.
-- [DGP Ordering Form Palette](https://github.com/elqora/dgp-ordering-form-palette) provides the optional Form Palette ordering integration.
-- [DGP Studio](https://github.com/elqora/dgp-studio) provides visual authoring, testing, preview, and publication UX.
-- [DGP SDK](https://github.com/elqora/dgp-sdk) defines backend execution.
-- [Digital Service Engine](https://github.com/timeax/digital-service-engine) is the legacy migration source and behavioral reference.
-
-## Usage
-
-`WorkspaceRuntime` consumes a host `WorkspaceBackend`. The bundled memory backend
-is intended for development and contract tests.
+`CanvasAPI` owns the non-visual canvas state and exposes its `editor`, `selection`, and `comments` collaborators.
 
 ```ts
-const backend = new MemoryWorkspaceBackend({ definition });
+import { CanvasAPI, createAuthoringDescriptorRegistry } from "@elqora/dgp-workspace";
+import { createProductBuilder } from "@elqora/dgp-core";
+
+const canvas = new CanvasAPI(createProductBuilder(definition), {
+  services,
+  auto_emit_state: false,
+});
+
+canvas.editor.add_field({
+  type: "text",
+  label: "Account name",
+  bind_id: "root",
+});
+canvas.set_position("field:account-name", 120, 80);
+canvas.select(["field:account-name"]);
+
+const registry = createAuthoringDescriptorRegistry([
+  { type: "select", options: { supported: true, auto_create: true } },
+]);
+```
+
+Editor mutations are transactional and undoable. The API covers canonical filter, field, and recursive-option CRUD; duplication and batch operations; relationships; capabilities; defaults; quantity and validation declarations; option and value effects; notices; service filtering; and service catalogs. Canvas snapshots cover graph projection, positions, viewport, selection, highlights, hover, edge mode, and per-field option-node visibility.
+
+## Editorial sessions
+
+`WorkspaceRuntime` binds headless authoring to a host `WorkspaceBackend`.
+
+```ts
+import { MemoryWorkspaceBackend, WorkspaceRuntime } from "@elqora/dgp-workspace";
+
+const backend = new MemoryWorkspaceBackend({ definition, services });
 const workspace = new WorkspaceRuntime(backend, {
   actor: { id: "editor-1", display_name: "Editor", meta: {} },
-  autosave_ms: 9000,
+  autosave_ms: 9_000,
 });
 
 await workspace.boot();
-workspace.mutate((current) => ({ ...current, name: "Updated product" }));
+workspace.editor?.relabel("field:account-name", "Customer account");
 await workspace.autosave();
-await workspace.commit("Describe the change");
+await workspace.commit("Clarify account field");
 ```
 
-Publication invokes DGP Validation and returns a structured
-`publication_validation_failed` result without calling the backend when the
-definition or host policies are not publishable. Workspace stores diagnostics
-but owns no diagnostics UI.
+Drafts and commits persist both the canonical `ProductDefinition` and Workspace-owned editorial state. Branch switching and snapshot restoration therefore preserve layout, viewport, selection, option visibility, edge mode, and catalog state rather than saving only the protocol document.
 
-Backend adapters own persistence, transport, authentication, authorization
-enforcement, merge policy, and publication side effects. Live adapters emit
-workspace or branch invalidations; hosts remain responsible for polling,
-WebSocket/SSE lifecycles, authentication, and reconnection. An invalidation
-that targets a dirty or saving document is deferred with a retryable
-`live_update_deferred` error so remote refreshes cannot erase local work.
+Publication invokes DGP Validation with hydrated SDK-shaped services and backend-owned JSON policy rules. A non-publishable document returns `publication_validation_failed` without invoking backend publication. Optimistic revisions prevent stale writes, and stale autosave, refresh, comment, and branch responses do not overwrite newer local state.
+
+## Collaboration and development adapters
+
+Comments support load, create, reply, edit, message deletion, movement, resolution, thread deletion, optimistic rollback, server-assigned IDs, bounded automatic retry, manual retry, cancellation, and synchronization events. Live collaboration remains transport-neutral: the package includes manual and polling adapters, while hosts may implement the same port with SSE, WebSocket, or another transport.
+
+`MemoryWorkspaceBackend` is a realistic development backend with branch revisions, conflicts, templates, comments, publication receipts, and an optional `MemoryWorkspacePersistence` port. The persistence port can be backed by IndexedDB, a filesystem, or another host store; persistence failures fall back to the live in-memory state and can be reported through `on_persistence_error`.
 
 ## Toolchain
 
@@ -60,16 +67,11 @@ DGP Workspace supports Node.js 22 or newer and npm with the committed lockfile.
 
 ```bash
 npm install
-npm run lint
-npm run typecheck
-npm test
-npm run check:boundaries
-npm run build
 npm run check
+npm pack --dry-run
 ```
 
-No generated outputs are committed. `npm run check` is the repository
-completion command.
+`npm run check` runs lint, strict type checking, the behavioral suite, dependency/source boundary enforcement, and the distributable build. Generated build output is not committed. Installation from the Git source runs `prepare`, so consumers receive `dist` artifacts.
 
 ## License
 

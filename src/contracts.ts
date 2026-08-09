@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 import type { HandlerService, ProductDefinition, ProductField } from "@elqora/dgp-spec";
-import type { PublicationValidationResult } from "@elqora/dgp-validation";
+import type { PublicationValidationResult, ServicePublicationPolicyRule } from "@elqora/dgp-validation";
 
 export interface BackendError {
   code: string;
@@ -38,6 +38,8 @@ export interface WorkspaceCommit {
   author_id: string;
   created_at: string;
   definition: ProductDefinition;
+  editorial_state: WorkspaceEditorialState;
+  revision: number;
   meta: Record<string, unknown>;
 }
 
@@ -47,7 +49,9 @@ export interface WorkspaceDraft {
   author_id: string;
   updated_at: string;
   definition: ProductDefinition;
+  editorial_state: WorkspaceEditorialState;
   base_commit_id: string | null;
+  revision: number;
   meta: Record<string, unknown>;
 }
 
@@ -81,15 +85,32 @@ export interface CommentThread {
   meta: Record<string, unknown>;
 }
 
+export interface WorkspaceEditorialState {
+  positions: Record<string, { x: number; y: number }>;
+  viewport: { x: number; y: number; zoom: number };
+  selection_ids: string[];
+  highlighted_ids: string[];
+  hover_id?: string;
+  edge_mode: "bind" | "include" | "exclude" | "service";
+  shown_option_fields: string[];
+  catalog?: import("./editor.js").ServiceCatalogState;
+}
+
+export function emptyEditorialState(): WorkspaceEditorialState {
+  return { positions: {}, viewport: { x: 0, y: 0, zoom: 1 }, selection_ids: [], highlighted_ids: [], edge_mode: "bind", shown_option_fields: [] };
+}
+
 export interface WorkspaceBranchData {
   branch: WorkspaceBranch;
   definition: ProductDefinition;
+  editorial_state: WorkspaceEditorialState;
   head: WorkspaceCommit | null;
   draft: WorkspaceDraft | null;
   templates: FieldTemplate[];
   participants: BranchParticipant[];
   comments: CommentThread[];
   commits: WorkspaceCommit[];
+  revision: number;
 }
 
 export interface WorkspaceBootData {
@@ -99,8 +120,14 @@ export interface WorkspaceBootData {
   branches: WorkspaceBranch[];
   current_branch_id: string;
   services: HandlerService[];
+  policy_rules: ServicePublicationPolicyRule[];
   current: WorkspaceBranchData;
+  section_errors?: Partial<Record<WorkspaceBootSection, BackendError>>;
 }
+
+export const WORKSPACE_BOOT_SECTIONS = ["authors", "permissions", "branches", "services", "policies", "branch", "templates", "participants", "comments", "snapshot"] as const;
+export type WorkspaceBootSection = (typeof WORKSPACE_BOOT_SECTIONS)[number];
+export type WorkspaceBootSectionStatus = "idle" | "loading" | "success" | "error";
 
 export type WorkspaceSnapshotState = "clean" | "dirty" | "saving" | "uncommitted";
 export type WorkspaceStatus = "idle" | "booting" | "ready" | "error";
@@ -121,11 +148,16 @@ export interface WorkspaceState {
   comments: CommentThread[];
   commits: WorkspaceCommit[];
   services: HandlerService[];
+  policy_rules: ServicePublicationPolicyRule[];
   snapshot_state: WorkspaceSnapshotState;
   validation: PublicationValidationResult | null;
   revision: number;
+  backend_revision: number;
   last_saved_at: number | null;
   error: BackendError | null;
+  boot_sections: Record<WorkspaceBootSection, WorkspaceBootSectionStatus>;
+  boot_errors: Partial<Record<WorkspaceBootSection, BackendError>>;
+  boot_partial_failure: boolean;
 }
 
 export interface PublicationReceipt {
