@@ -26,8 +26,8 @@
   },
   "dependencies": {
     "@elqora/dgp-core": "github:elqora/dgp-core#bb06a70",
-    "@elqora/dgp-spec": "github:elqora/dgp-spec#de710c0",
-    "@elqora/dgp-validation": "github:elqora/dgp-validation#33073d8"
+    "@elqora/dgp-spec": "github:elqora/dgp-spec#6300c59",
+    "@elqora/dgp-validation": "github:elqora/dgp-validation#86ebeab"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1", "@types/node": "^24.10.0", "eslint": "10.0.1",
