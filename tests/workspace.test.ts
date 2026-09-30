@@ -346,6 +346,20 @@ describe("WorkspaceRuntime", () => {
     expect(first.value.id_map["root-field"]).not.toBe(second.value.id_map["root-field"]);
     expect(first.value.id_map.keep).not.toBe(second.value.id_map.keep);
     expect(first.value.id_map.drop).toBeUndefined();
+    const withOptions = runtime.capture_field_template("root-field", {
+      field_ids: ["root-field", "keep"],
+      property_keys: { "root-field": ["id", "type", "label", "options", "default_value"], keep: ["id", "type", "label", "bind_id"] },
+    });
+    expect(withOptions.ok).toBe(true); if (!withOptions.ok) return;
+    expect(withOptions.value.relationships?.includes_for_buttons["option-a"]).toEqual(["keep"]);
+    const optionTemplate = await runtime.create_template({ key: "selected-options", name: "With options", branch_id: "main", published: false, ...withOptions.value, meta: {} });
+    expect(optionTemplate.ok).toBe(true); if (!optionTemplate.ok) return;
+    const optionFirst = runtime.instantiate_template(optionTemplate.value.id);
+    const optionSecond = runtime.instantiate_template(optionTemplate.value.id);
+    expect(optionFirst.ok && optionSecond.ok).toBe(true); if (!optionFirst.ok || !optionSecond.ok) return;
+    expect(optionFirst.value.id_map["option-a"]).toBeTruthy();
+    expect(optionFirst.value.id_map["option-a"]).not.toBe(optionSecond.value.id_map["option-a"]);
+    expect(optionFirst.value.id_map.drop).toBeUndefined();
   });
 
   it("rejects invalid selective template capture with a structured error", async () => {
@@ -388,13 +402,14 @@ describe("WorkspaceRuntime", () => {
     };
     const backend = new MemoryWorkspaceBackend({ definition: definition(), persistence });
     const runtime = new WorkspaceRuntime(backend, { actor, auto_autosave: false }); await runtime.boot();
-    const global = await runtime.create_template({ key: "all", name: "All", branch_id: null, published: false, field: { id: "all", type: "text", label: "All" }, meta: {} });
+    const global = await runtime.create_template({ key: "all", name: "All", group_label: "Separate label", branch_id: null, published: false, field: { id: "all", type: "text", label: "All" }, meta: {} });
     expect(global.ok).toBe(true);
     expect(await runtime.create_branch("Feature")).toMatchObject({ ok: true });
     expect(stored?.global_templates?.map((item) => item.key)).toEqual(["all"]);
     expect(stored?.branches.every((branch) => branch.templates.length === 0)).toBe(true);
     const restored = new WorkspaceRuntime(new MemoryWorkspaceBackend({ definition: definition(), persistence }), { actor, auto_autosave: false }); await restored.boot();
     expect(restored.state.templates.map((item) => item.key)).toEqual(["all"]);
+    expect(restored.state.templates[0]?.group_label).toBe("Separate label");
     if (global.ok && stored !== undefined) {
       const legacy = structuredClone(stored);
       legacy.global_templates = [];
