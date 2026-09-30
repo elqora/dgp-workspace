@@ -268,6 +268,193 @@ describe("WorkspaceRuntime", () => {
     expect(await runtime.delete_template(created.value.id)).toEqual({ ok: true, value: undefined }); expect(runtime.state.templates).toHaveLength(1);
   });
 
+  it("captures connected fields and instantiates fresh recursive identities in one undo step", async () => {
+    const product = definition();
+    product.fields = [
+      { id: "choice", type: "select", label: "Choice", bind_id: "root", default_value: "nested", options: [{ id: "outer", label: "Outer", children: [{ id: "nested", label: "Nested", service_id: "service-1" }] }] },
+      { id: "detail", type: "text", label: "Detail", bind_id: "nested" },
+      { id: "unrelated", type: "text", label: "Other", bind_id: "root" },
+    ];
+    product.includes_for_buttons = { nested: ["detail"] };
+    product.value_effects_for_triggers = { nested: { detail: { value: "nested" } } };
+    product.fallbacks = { nodes: { nested: ["service-1"] } };
+    product.notices = [{ id: "notice", type: "public", kind: "label", severity: "info", target: { scope: "node", node_kind: "option", node_id: "nested" }, title: "Help" }];
+    const runtime = new WorkspaceRuntime(new MemoryWorkspaceBackend({ definition: product }), { actor, auto_autosave: false });
+    await runtime.boot();
+    const captured = runtime.capture_field_template("choice", true);
+    expect(captured.ok).toBe(true); if (!captured.ok) return;
+    expect(captured.value.connected_fields?.map((field) => field.id)).toEqual(["detail"]);
+    const single = runtime.capture_field_template("choice");
+    expect(single.ok).toBe(true);
+    if (single.ok) expect(single.value.connected_fields).toBeUndefined();
+    const saved = await runtime.create_template({ key: "choice", name: "Choice", branch_id: "main", published: false, ...captured.value, meta: {} });
+    expect(saved.ok).toBe(true); if (!saved.ok) return;
+    const first = runtime.instantiate_template(saved.value.id, { bind_id: "root" });
+    const second = runtime.instantiate_template(saved.value.id, { bind_id: "root" });
+    expect(first.ok && second.ok).toBe(true); if (!first.ok || !second.ok) return;
+    const left = first.value.id_map; const right = second.value.id_map;
+    for (const old of ["choice", "outer", "nested", "detail", "notice"]) {
+      expect(left[old]).toBeTruthy(); expect(right[old]).toBeTruthy();
+      expect(left[old]).not.toBe(old); expect(right[old]).not.toBe(left[old]);
+    }
+    const document = runtime.state.definition as ProductDefinition;
+    expect(document.fields.find((field) => field.id === right.choice)?.default_value).toBe(right.nested);
+    expect(document.fields.find((field) => field.id === right.detail)?.bind_id).toBe(right.nested);
+    expect(document.includes_for_buttons[right.nested as string]).toEqual([right.detail]);
+    expect(document.value_effects_for_triggers[right.nested as string]?.[right.detail as string]?.value).toBe("nested");
+    expect(document.fallbacks?.nodes?.[right.nested as string]).toEqual(["service-1"]);
+    expect(document.notices.find((notice) => notice.id === right.notice)?.target).toMatchObject({ node_id: right.nested });
+    expect(document.fields.find((field) => field.id === "choice")?.options?.[0]?.children?.[0]?.id).toBe("nested");
+    runtime.editor?.undo();
+    expect(runtime.state.definition?.fields.some((field) => field.id === right.choice)).toBe(false);
+    runtime.editor?.redo();
+    expect(runtime.state.definition?.fields.some((field) => field.id === right.choice)).toBe(true);
+  });
+
+  it("keeps global templates visible across branches and preserves explicit global clone scope", async () => {
+    const backend = new MemoryWorkspaceBackend({ definition: definition() });
+    const runtime = new WorkspaceRuntime(backend, { actor, auto_autosave: false }); await runtime.boot();
+    const global = await runtime.create_template({ key: "shared", name: "Shared", branch_id: null, published: false, field: { id: "shared", type: "text", label: "Shared" }, meta: {} });
+    expect(global).toMatchObject({ ok: true, value: { branch_id: null } }); if (!global.ok) return;
+    const branch = await runtime.create_branch("Feature"); expect(branch.ok).toBe(true);
+    const branchId = runtime.state.current_branch_id as string;
+    expect(runtime.state.templates.some((item) => item.id === global.value.id)).toBe(true);
+    const privateCopy = await runtime.clone_template({ id: global.value.id }, { key: "private", branch_id: branchId });
+    expect(privateCopy).toMatchObject({ ok: true, value: { branch_id: branchId } });
+    const globalCopy = await runtime.clone_template({ id: privateCopy.ok ? privateCopy.value.id : "" }, { key: "shared-copy", branch_id: null });
+    expect(globalCopy).toMatchObject({ ok: true, value: { branch_id: null } });
+    expect(await runtime.switch_branch("main")).toMatchObject({ ok: true });
+    expect(runtime.state.templates.map((item) => item.key).sort()).toEqual(["shared", "shared-copy"]);
+    expect(await runtime.create_template({ key: "private", name: "Private global", branch_id: null, published: false, field: { id: "x", type: "text", label: "X" }, meta: {} })).toMatchObject({ ok: false, error: { code: "template_key_conflict" } });
+    expect(await runtime.switch_branch(branchId)).toMatchObject({ ok: true });
+    expect(runtime.state.templates.map((item) => item.key).sort()).toEqual(["private", "shared", "shared-copy"]);
+    expect(await runtime.delete_template(global.value.id)).toMatchObject({ ok: true });
+    expect(await runtime.switch_branch("main")).toMatchObject({ ok: true });
+    expect(runtime.state.templates.map((item) => item.key)).toEqual(["shared-copy"]);
+  });
+
+  it("persists global templates without duplicating them into branches and migrates old null-scoped records", async () => {
+    let stored: MemoryWorkspaceSnapshot | undefined;
+    const persistence = {
+      load() { return Promise.resolve(stored === undefined ? undefined : structuredClone(stored)); },
+      save(snapshot: MemoryWorkspaceSnapshot) { stored = structuredClone(snapshot); return Promise.resolve(); },
+    };
+    const backend = new MemoryWorkspaceBackend({ definition: definition(), persistence });
+    const runtime = new WorkspaceRuntime(backend, { actor, auto_autosave: false }); await runtime.boot();
+    const global = await runtime.create_template({ key: "all", name: "All", branch_id: null, published: false, field: { id: "all", type: "text", label: "All" }, meta: {} });
+    expect(global.ok).toBe(true);
+    expect(await runtime.create_branch("Feature")).toMatchObject({ ok: true });
+    expect(stored?.global_templates?.map((item) => item.key)).toEqual(["all"]);
+    expect(stored?.branches.every((branch) => branch.templates.length === 0)).toBe(true);
+    const restored = new WorkspaceRuntime(new MemoryWorkspaceBackend({ definition: definition(), persistence }), { actor, auto_autosave: false }); await restored.boot();
+    expect(restored.state.templates.map((item) => item.key)).toEqual(["all"]);
+    if (global.ok && stored !== undefined) {
+      const legacy = structuredClone(stored);
+      legacy.global_templates = [];
+      legacy.branches[0]?.templates.push(global.value);
+      stored = legacy;
+      const migrated = new WorkspaceRuntime(new MemoryWorkspaceBackend({ definition: definition(), persistence }), { actor, auto_autosave: false }); await migrated.boot();
+      expect(migrated.state.templates.map((item) => item.key)).toEqual(["all"]);
+    }
+  });
+
+  it("saves global templates when the main branch has a nonliteral ID", async () => {
+    const initial = new MemoryWorkspaceBackend({ definition: definition() }).snapshot();
+    const main = initial.branches[0]; if (main === undefined) throw new Error("Missing main branch.");
+    main.branch.id = "branch:main";
+    const persistence = {
+      load: () => Promise.resolve(structuredClone(initial)),
+      save: () => Promise.resolve(),
+    };
+    const runtime = new WorkspaceRuntime(new MemoryWorkspaceBackend({ definition: definition(), persistence }), { actor, auto_autosave: false });
+    expect(await runtime.boot()).toMatchObject({ ok: true });
+    expect(runtime.state.current_branch_id).toBe("branch:main");
+    expect(await runtime.create_template({ key: "global", name: "Global", branch_id: null, published: false, field: { id: "g", type: "text", label: "G" }, meta: {} })).toMatchObject({ ok: true, value: { branch_id: null } });
+  });
+
+  it("moves a template between branch and global scope without stale cached views", async () => {
+    const runtime = new WorkspaceRuntime(new MemoryWorkspaceBackend({ definition: definition() }), { actor, auto_autosave: false }); await runtime.boot();
+    const saved = await runtime.create_template({ key: "movable", name: "Movable", branch_id: "main", published: false, field: { id: "m", type: "text", label: "M" }, meta: {} });
+    expect(saved.ok).toBe(true); if (!saved.ok) return;
+    expect(await runtime.create_branch("Feature")).toMatchObject({ ok: true });
+    const branchId = runtime.state.current_branch_id as string;
+    expect(runtime.state.templates.map((item) => item.key)).toEqual([]);
+    expect(await runtime.switch_branch("main")).toMatchObject({ ok: true });
+    expect(await runtime.update_template(saved.value.id, { branch_id: null })).toMatchObject({ ok: true, value: { branch_id: null } });
+    expect(await runtime.switch_branch(branchId)).toMatchObject({ ok: true });
+    expect(runtime.state.templates.map((item) => item.key)).toEqual(["movable"]);
+    expect(await runtime.update_template(saved.value.id, { branch_id: branchId })).toMatchObject({ ok: true, value: { branch_id: branchId } });
+    expect(await runtime.switch_branch("main")).toMatchObject({ ok: true });
+    expect(runtime.state.templates).toEqual([]);
+  });
+
+  it("enforces template capture and insertion permissions through the runtime", async () => {
+    const permissive = new WorkspaceRuntime(new MemoryWorkspaceBackend({ definition: definition() }), { actor, auto_autosave: false }); await permissive.boot();
+    const template: FieldTemplate = { id: "saved", key: "saved", name: "Saved", branch_id: "main", published: false, field: { id: "x", type: "text", label: "X" }, updated_at: new Date(0).toISOString(), meta: {} };
+    const backend = new MemoryWorkspaceBackend({ definition: definition(), permissions: { ...permissive.state.permissions, "document.mutate": false, "template.write": false } });
+    expect(await backend.save_template(template)).toMatchObject({ ok: true });
+    const runtime = new WorkspaceRuntime(backend, { actor, auto_autosave: false }); await runtime.boot();
+    expect(runtime.capture_field_template("x")).toMatchObject({ ok: false, error: { code: "authorization_denied" } });
+    expect(runtime.instantiate_template(template.id)).toMatchObject({ ok: false, error: { code: "authorization_denied" } });
+    expect(runtime.state.definition?.fields).toEqual([]);
+  });
+
+  it("does not show a private template on a different branch when its save resolves late", async () => {
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    class DelayedTemplateBackend extends MemoryWorkspaceBackend {
+      override async save_template(template: FieldTemplate) { await gate; return super.save_template(template); }
+    }
+    const runtime = new WorkspaceRuntime(new DelayedTemplateBackend({ definition: definition() }), { actor, auto_autosave: false }); await runtime.boot();
+    const saving = runtime.create_template({ key: "main-only", name: "Main", branch_id: "main", published: false, field: { id: "main-only", type: "text", label: "Main" }, meta: {} });
+    expect(await runtime.create_branch("Feature")).toMatchObject({ ok: true });
+    release?.(); expect(await saving).toMatchObject({ ok: true });
+    expect(runtime.state.templates.map((item) => item.key)).toEqual([]);
+    expect(await runtime.switch_branch("main")).toMatchObject({ ok: true });
+    expect(runtime.state.templates.map((item) => item.key)).toEqual(["main-only"]);
+  });
+
+  it("rejects invalid template references without changing the document", async () => {
+    const runtime = new WorkspaceRuntime(new MemoryWorkspaceBackend({ definition: definition() }), { actor, auto_autosave: false }); await runtime.boot();
+    const saved = await runtime.create_template({
+      key: "broken", name: "Broken", branch_id: "main", published: false,
+      field: { id: "field", type: "text", label: "Field" },
+      relationships: { includes_for_buttons: { field: ["missing"] }, excludes_for_buttons: {}, option_effects_for_buttons: {}, value_effects_for_triggers: {} }, meta: {},
+    });
+    expect(saved.ok).toBe(true); if (!saved.ok) return;
+    expect(runtime.instantiate_template(saved.value.id)).toMatchObject({ ok: false, error: { code: "template_invalid" } });
+    expect(runtime.state.definition?.fields).toEqual([]);
+    expect(runtime.editor?.can_undo()).toBe(false);
+  });
+
+  it("captures a cyclic relationship group and remaps option selections for their target field", async () => {
+    const product = definition();
+    product.fields = [
+      { id: "trigger", type: "button", label: "Trigger", button: true, bind_id: "root" },
+      { id: "target", type: "select", label: "Target", bind_id: "root", options: [{ id: "option", label: "Option" }] },
+      { id: "unrelated", type: "text", label: "Unrelated", bind_id: "root" },
+    ];
+    product.includes_for_buttons = { trigger: ["target"] };
+    product.excludes_for_buttons = { target: ["trigger"] };
+    product.option_effects_for_buttons = { trigger: { target: { include: ["option"] } } };
+    product.value_effects_for_triggers = { trigger: { target: { value: "option" } } };
+    const runtime = new WorkspaceRuntime(new MemoryWorkspaceBackend({ definition: product }), { actor, auto_autosave: false }); await runtime.boot();
+    const captured = runtime.capture_field_template("trigger", true);
+    expect(captured.ok).toBe(true); if (!captured.ok) return;
+    expect(captured.value.connected_fields?.map((field) => field.id)).toEqual(["target"]);
+    expect(captured.value.relationships?.option_effects_for_buttons.trigger?.target?.include).toEqual(["option"]);
+    const saved = await runtime.create_template({ key: "group", name: "Group", branch_id: "main", published: false, ...captured.value, meta: {} });
+    expect(saved.ok).toBe(true); if (!saved.ok) return;
+    const inserted = runtime.instantiate_template(saved.value.id, { bind_id: "root" });
+    expect(inserted.ok).toBe(true); if (!inserted.ok) return;
+    const ids = inserted.value.id_map; const document = runtime.state.definition as ProductDefinition;
+    expect(document.includes_for_buttons[ids.trigger as string]).toEqual([ids.target]);
+    expect(document.excludes_for_buttons[ids.target as string]).toEqual([ids.trigger]);
+    expect(document.option_effects_for_buttons[ids.trigger as string]?.[ids.target as string]?.include).toEqual([ids.option]);
+    expect(document.value_effects_for_triggers[ids.trigger as string]?.[ids.target as string]?.value).toBe(ids.option);
+    expect(document.fields.some((field) => field.id === "unrelated-copy")).toBe(false);
+  });
+
   it("merges template deltas by timestamp without inferring deletion unless reconciliation is explicit", () => {
     const base = (id: string, updated_at: string, name = id): FieldTemplate => ({ id, key: id, name, branch_id: "main", published: true, field: { id, type: "text", label: name }, updated_at, meta: {} });
     const current = [base("old", "2026-01-01T00:00:00.000Z"), base("changed", "2026-08-09T00:00:00.000Z", "local"), base("missing", "2026-08-08T00:00:00.000Z")];

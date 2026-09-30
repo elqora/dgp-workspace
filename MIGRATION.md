@@ -1,5 +1,9 @@
 # Workspace migration evidence
 
+## Template correctness follow-up — 2026-09-30
+
+Workspace now owns capture and atomic instantiation of reusable field templates. Fresh recursive field/option/notice IDs and rewritten internal references replace the unsafe single-field `add_field` template-drop path. Optional connected fields, their canonical relationships, node notices, and node fallbacks are editorial template data; Spec's authored product contract is unchanged. The memory backend treats `branch_id: null` as global scope independently of the main branch ID and persists global templates separately. Focused Workspace tests cover repeated insertion, undo/redo, invalid references, global visibility, persistence, cloning, and delayed save results. Service Builder must consume these APIs in its own follow-up; this repository does not contain the UI.
+
 DGP Workspace is the framework-neutral destination for the complete behavior under legacy `src/react/canvas` and the non-React behavior formerly embedded in `src/react/workspace/context`. Historical placement below React barrels is an extraction seam, not presentation ownership.
 
 Canonical v1 deliberately changes contract names and storage shapes: tags become filters, constraints become capabilities, quantity and validation declarations use their ratified snake-case fields, and Workspace snapshots separate canonical `ProductDefinition` data from editorial state. No legacy aliases, adapters, deprecated fields, or persisted-definition compatibility mode are included. The observable authoring, state, synchronization, and failure outcomes remain preserved.

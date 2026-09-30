@@ -61,6 +61,14 @@ Comments support load, create, reply, edit, message deletion, movement, resoluti
 
 `MemoryWorkspaceBackend` is a realistic development backend with branch revisions, conflicts, templates, comments, publication receipts, and an optional `MemoryWorkspacePersistence` port. The persistence port can be backed by IndexedDB, a filesystem, or another host store; persistence failures fall back to the live in-memory state and can be reported through `on_persistence_error`.
 
+## Field templates
+
+`WorkspaceRuntime.capture_field_template(rootId, includeConnected)` returns the canonical field payload for `create_template`. With `includeConnected`, it includes fields reachable through bindings, include/exclude relationships, and option/value effects. It keeps service assignments and relationships among captured fields while detaching external filter context. `FieldTemplate` retains its single `field` property; connected fields, relationships, attached node notices, and node fallbacks are optional Workspace-owned data.
+
+`WorkspaceRuntime.instantiate_template(templateId, { bind_id? })` inserts the whole payload as one Editor transaction. It returns `root_id`, `field_ids`, and an `id_map` from saved IDs to fresh field, recursive-option, and notice IDs. The optional binding replaces the copied root's external filter link. Invalid internal references return `template_invalid` without changing the definition. Hosts can position the returned root and other fields through CanvasAPI.
+
+Templates with `branch_id: null` are workspace-wide and visible on every branch. `MemoryWorkspaceBackend` persists them separately from private branch templates. A global key must not conflict with any branch key; a private key may be reused on different branches. Explicit `branch_id: null` on clone moves the new copy to global scope. Existing snapshots with null-scoped templates in a branch are read into the global collection.
+
 ## Toolchain
 
 DGP Workspace supports Node.js 22 or newer and npm with the committed lockfile.

@@ -424,8 +424,39 @@ export class WorkspaceRuntime {
   async save_template(template: FieldTemplate): Promise<BackendResult<FieldTemplate>> {
     if (!this.#authorized("template.write")) return denied("template.write");
     const saved = await this.#backend.save_template(structuredClone(template), this.#state.actor.id);
-    if (saved.ok) { this.#update({ templates: [...this.#state.templates.filter((item) => item.id !== saved.value.id), saved.value] }); this.#cacheCurrent(); }
+    if (saved.ok) this.#updateTemplateViews(saved.value.id, saved.value);
     return saved;
+  }
+
+  capture_field_template(rootId: string, includeConnected = false): BackendResult<Pick<FieldTemplate, "field" | "connected_fields" | "relationships" | "notices" | "fallbacks">> {
+    if (!this.#authorized("template.write")) return denied("template.write");
+    if (this.editor === undefined) return { ok: false, error: error("document_missing", "No editable document is loaded.") };
+    try { return { ok: true, value: this.editor.capture_template(rootId, includeConnected) }; }
+    catch (caught) { return { ok: false, error: error("template_invalid", caught instanceof Error ? caught.message : "Cannot capture template.") }; }
+  }
+
+  instantiate_template(templateId: string, options: { bind_id?: string | string[] } = {}): BackendResult<{ root_id: string; field_ids: string[]; id_map: Record<string, string> }> {
+    if (!this.#authorized("document.mutate")) return denied("document.mutate");
+    if (this.editor === undefined) return { ok: false, error: error("document_missing", "No editable document is loaded.") };
+    const template = this.#state.templates.find((item) => item.id === templateId);
+    if (template === undefined) return { ok: false, error: error("template_not_found", `Template ${templateId} was not found.`) };
+    try { return { ok: true, value: this.editor.instantiate_template(template, options) }; }
+    catch (caught) { return { ok: false, error: error("template_invalid", caught instanceof Error ? caught.message : "Cannot instantiate template.") }; }
+  }
+
+  #updateTemplateViews(templateId: string, saved?: FieldTemplate): void {
+    const visible = (branchId: string): boolean => saved !== undefined && (saved.branch_id === null || saved.branch_id === branchId);
+    for (const [branchId, data] of this.#branchCache) {
+      const templates = data.templates.filter((item) => item.id !== templateId);
+      if (visible(branchId)) templates.push(structuredClone(saved as FieldTemplate));
+      this.#branchCache.set(branchId, { ...data, templates });
+    }
+    const branchId = this.#state.current_branch_id;
+    if (branchId !== null) {
+      const templates = this.#state.templates.filter((item) => item.id !== templateId);
+      if (visible(branchId)) templates.push(structuredClone(saved as FieldTemplate));
+      this.#update({ templates }); this.#cacheCurrent();
+    }
   }
 
   async create_template(input: Omit<FieldTemplate, "id" | "updated_at"> & { id?: string }): Promise<BackendResult<FieldTemplate>> {
@@ -443,7 +474,7 @@ export class WorkspaceRuntime {
     if (current === undefined) return { ok: false, error: error("template_not_found", "The template to clone was not found.") };
     return this.save_template({
       ...structuredClone(current), id: "", key: options.key ?? `${current.key}-copy`, name: options.name ?? `${current.name} copy`,
-      branch_id: options.branch_id ?? current.branch_id, published: options.published ?? false,
+      branch_id: options.branch_id === undefined ? current.branch_id : options.branch_id, published: options.published ?? false,
     });
   }
 
@@ -453,7 +484,7 @@ export class WorkspaceRuntime {
   async delete_template(templateId: string): Promise<BackendResult<void>> {
     if (!this.#authorized("template.write")) return denied("template.write");
     const removed = await this.#backend.delete_template(templateId, this.#state.actor.id);
-    if (removed.ok) { this.#update({ templates: this.#state.templates.filter((item) => item.id !== templateId) }); this.#cacheCurrent(); }
+    if (removed.ok) this.#updateTemplateViews(templateId);
     return removed;
   }
 

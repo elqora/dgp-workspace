@@ -2,6 +2,7 @@
 
 import type {
   FieldOption,
+  FieldValueEffect,
   FieldValidationRule,
   HandlerService,
   JsonValue,
@@ -22,6 +23,7 @@ import {
 } from "@elqora/dgp-core";
 
 import type { AuthoringFieldDescriptor } from "./descriptors.js";
+import type { FieldTemplate } from "./contracts.js";
 
 export type WireKind = "bind" | "include" | "exclude" | "service";
 export type NodeReference =
@@ -465,6 +467,143 @@ export class Editor {
       definition.fields.push({ ...clone(input), id, type: input.type, label: input.label, button: input.button === true });
     }));
     return id;
+  }
+
+  capture_template(rootId: string, includeConnected = false): Pick<FieldTemplate, "field" | "connected_fields" | "relationships" | "notices" | "fallbacks"> {
+    const definition = this.#builder.definition;
+    const root = definition.fields.find((field) => field.id === rootId);
+    if (root === undefined) throw new Error(`Unknown template root field ${rootId}.`);
+    const owner = new Map<string, string>();
+    for (const field of definition.fields) {
+      owner.set(field.id, field.id);
+      const visit = (options: readonly FieldOption[]): void => { for (const option of options) { owner.set(option.id, field.id); visit(option.children ?? []); } };
+      visit(field.options ?? []);
+    }
+    const selected = new Set([rootId]);
+    if (includeConnected) {
+      const link = (left: string, right: string): void => {
+        const a = owner.get(left); const b = owner.get(right);
+        if (a === undefined || b === undefined || a === b) return;
+        edges.get(a)?.add(b); edges.get(b)?.add(a);
+      };
+      const edges = new Map(definition.fields.map((field) => [field.id, new Set<string>()]));
+      for (const field of definition.fields) for (const target of [field.bind_id].flat().filter((id): id is string => typeof id === "string")) link(field.id, target);
+      for (const map of [definition.includes_for_buttons, definition.excludes_for_buttons]) for (const [source, targets] of Object.entries(map)) for (const target of targets) link(source, target);
+      for (const [source, targets] of Object.entries(definition.option_effects_for_buttons)) for (const target of Object.keys(targets)) link(source, target);
+      for (const [source, targets] of Object.entries(definition.value_effects_for_triggers)) for (const target of Object.keys(targets)) link(source, target);
+      for (const [source, targets] of Object.entries(definition.option_effects_for_buttons)) for (const effect of Object.values(targets)) for (const target of [...(effect.include ?? []), ...(effect.exclude ?? [])]) link(source, target);
+      const queue = [rootId];
+      for (let i = 0; i < queue.length; i++) for (const next of edges.get(queue[i] as string) ?? []) if (!selected.has(next)) { selected.add(next); queue.push(next); }
+    }
+    const fields = definition.fields.filter((field) => selected.has(field.id));
+    const selectedIds = new Set([...owner].filter(([, fieldId]) => selected.has(fieldId)).map(([id]) => id));
+    const retain = (input: Record<string, string[]>): Record<string, string[]> => {
+      const output: Record<string, string[]> = {};
+      for (const [id, targets] of Object.entries(input)) {
+        if (!selectedIds.has(id)) continue;
+        const kept = targets.filter((target) => selectedIds.has(target));
+        if (kept.length > 0) output[id] = kept;
+      }
+      return output;
+    };
+    const optionEffects: Record<string, Record<string, OptionEffectForButton>> = {};
+    for (const [source, targets] of Object.entries(definition.option_effects_for_buttons)) {
+      if (!selectedIds.has(source)) continue;
+      const kept: Record<string, OptionEffectForButton> = {};
+      for (const [target, effect] of Object.entries(targets)) if (selectedIds.has(target)) kept[target] = {
+        ...clone(effect),
+        ...(effect.include === undefined ? {} : { include: effect.include.filter((id) => selectedIds.has(id)) }),
+        ...(effect.exclude === undefined ? {} : { exclude: effect.exclude.filter((id) => selectedIds.has(id)) }),
+      };
+      if (Object.keys(kept).length > 0) optionEffects[source] = kept;
+    }
+    const valueEffects: Record<string, Record<string, FieldValueEffect>> = {};
+    for (const [source, targets] of Object.entries(definition.value_effects_for_triggers)) {
+      if (!selectedIds.has(source)) continue;
+      const kept: Record<string, FieldValueEffect> = {};
+      for (const [target, effect] of Object.entries(targets)) if (selectedIds.has(target)) kept[target] = clone(effect);
+      if (Object.keys(kept).length > 0) valueEffects[source] = kept;
+    }
+    const notices = definition.notices.filter((notice) => notice.target.scope === "node" && selectedIds.has(notice.target.node_id));
+    const nodes = Object.fromEntries(Object.entries(definition.fallbacks?.nodes ?? {}).filter(([id]) => selectedIds.has(id)));
+    return {
+      field: clone(root),
+      ...(fields.length > 1 ? { connected_fields: clone(fields.filter((field) => field.id !== rootId)) } : {}),
+      relationships: { includes_for_buttons: retain(definition.includes_for_buttons), excludes_for_buttons: retain(definition.excludes_for_buttons), option_effects_for_buttons: optionEffects, value_effects_for_triggers: valueEffects },
+      ...(notices.length > 0 ? { notices: clone(notices) } : {}),
+      ...(Object.keys(nodes).length > 0 ? { fallbacks: { nodes: clone(nodes) } } : {}),
+    };
+  }
+
+  instantiate_template(template: Pick<FieldTemplate, "field" | "connected_fields" | "relationships" | "notices" | "fallbacks">, options: { bind_id?: string | string[] } = {}): { root_id: string; field_ids: string[]; id_map: Record<string, string> } {
+    const source = [template.field, ...(template.connected_fields ?? [])];
+    if (source.length === 0 || !source[0]?.id) throw new Error("Template root field is missing.");
+    const oldIds = new Set<string>();
+    const fieldOptionIds = new Map<string, Set<string>>();
+    const map = new Map<string, string>();
+    const used = new Set([...this.#builder.index.nodeIds(), ...this.#builder.definition.notices.map((notice) => notice.id)]);
+    const add = (id: string): void => {
+      if (!id || oldIds.has(id)) throw new Error(`Duplicate or empty template node ID ${id}.`);
+      oldIds.add(id);
+      let candidate = `${id}-copy`; let sequence = 2;
+      while (used.has(candidate)) candidate = `${id}-copy-${sequence++}`;
+      used.add(candidate); map.set(id, candidate);
+    };
+    const visit = (options: readonly FieldOption[], ids: Set<string>): void => { for (const option of options) { add(option.id); ids.add(option.id); visit(option.children ?? [], ids); } };
+    for (const field of source) { add(field.id); const ids = new Set<string>(); visit(field.options ?? [], ids); fieldOptionIds.set(field.id, ids); }
+    for (const notice of template.notices ?? []) add(notice.id);
+    const mapped = (id: string): string => { const result = map.get(id); if (result === undefined) throw new Error(`Template references external node ${id}.`); return result; };
+    const value = (input: unknown, ids: ReadonlySet<string>): unknown => typeof input === "string" && ids.has(input) ? mapped(input) : Array.isArray(input) ? input.map((item: unknown) => value(item, ids)) : input;
+    const copyOptions = (options: readonly FieldOption[]): FieldOption[] => options.map((option) => ({ ...clone(option), id: mapped(option.id), ...(option.children === undefined ? {} : { children: copyOptions(option.children) }) }));
+    const fields = source.map((field, index) => {
+      const copy = clone(field);
+      copy.id = mapped(field.id);
+      if (field.options !== undefined) copy.options = copyOptions(field.options);
+      if (index === 0 && options.bind_id !== undefined) copy.bind_id = clone(options.bind_id);
+      else if (field.bind_id !== undefined) {
+        const ids = Array.isArray(field.bind_id) ? field.bind_id : [field.bind_id];
+        const internal = ids.filter((id) => map.has(id)).map(mapped);
+        if (internal.length === 0) delete copy.bind_id;
+        else copy.bind_id = Array.isArray(field.bind_id) ? internal : internal[0] as string;
+      }
+      if (field.default_value !== undefined) copy.default_value = value(field.default_value, fieldOptionIds.get(field.id) ?? new Set()) as typeof field.default_value;
+      return copy;
+    });
+    const relationships = template.relationships;
+    for (const lists of [relationships?.includes_for_buttons, relationships?.excludes_for_buttons]) {
+      for (const [sourceId, targets] of Object.entries(lists ?? {})) { mapped(sourceId); for (const target of targets) mapped(target); }
+    }
+    for (const [sourceId, targets] of Object.entries(relationships?.option_effects_for_buttons ?? {})) { mapped(sourceId); for (const target of Object.keys(targets)) mapped(target); }
+    for (const [sourceId, targets] of Object.entries(relationships?.value_effects_for_triggers ?? {})) { mapped(sourceId); for (const target of Object.keys(targets)) mapped(target); }
+    for (const targets of Object.values(relationships?.option_effects_for_buttons ?? {})) for (const effect of Object.values(targets)) {
+      for (const id of [...(effect.include ?? []), ...(effect.exclude ?? [])]) mapped(id);
+    }
+    const remapList = (input: Record<string, string[]> = {}): Record<string, string[]> => Object.fromEntries(Object.entries(input).filter(([id]) => map.has(id)).map(([id, targets]) => [mapped(id), targets.filter((target) => map.has(target)).map(mapped)]));
+    const remapEffects = <T>(input: Record<string, Record<string, T>> = {}, change: (effect: T) => T): Record<string, Record<string, T>> => Object.fromEntries(Object.entries(input).filter(([id]) => map.has(id)).map(([id, targets]) => [mapped(id), Object.fromEntries(Object.entries(targets).filter(([target]) => map.has(target)).map(([target, effect]) => [mapped(target), change(effect)]))]));
+    const optionEffects = remapEffects(relationships?.option_effects_for_buttons, (effect) => ({ ...clone(effect), ...(effect.include === undefined ? {} : { include: effect.include.filter((id) => map.has(id)).map(mapped) }), ...(effect.exclude === undefined ? {} : { exclude: effect.exclude.filter((id) => map.has(id)).map(mapped) }) }));
+    const valueEffects: ProductDefinition["value_effects_for_triggers"] = {};
+    for (const [sourceId, targets] of Object.entries(relationships?.value_effects_for_triggers ?? {})) {
+      const copied: Record<string, FieldValueEffect> = {};
+      for (const [targetId, effect] of Object.entries(targets)) {
+        copied[mapped(targetId)] = { ...clone(effect), value: value(effect.value, fieldOptionIds.get(targetId) ?? new Set()) as typeof effect.value };
+      }
+      valueEffects[mapped(sourceId)] = copied;
+    }
+    const notices = (template.notices ?? []).map((notice) => {
+      if (notice.target.scope !== "node") throw new Error("Global notices cannot be instantiated with a field template.");
+      return { ...clone(notice), id: mapped(notice.id), target: { ...notice.target, node_id: mapped(notice.target.node_id) } };
+    });
+    const fallbacks = Object.fromEntries(Object.entries(template.fallbacks?.nodes ?? {}).map(([id, services]) => [mapped(id), clone(services)]));
+    this.transact("template:instantiate", () => this.#mutate((definition) => {
+      definition.fields.push(...fields);
+      Object.assign(definition.includes_for_buttons, remapList(relationships?.includes_for_buttons));
+      Object.assign(definition.excludes_for_buttons, remapList(relationships?.excludes_for_buttons));
+      Object.assign(definition.option_effects_for_buttons, optionEffects);
+      Object.assign(definition.value_effects_for_triggers, valueEffects);
+      definition.notices.push(...notices);
+      if (Object.keys(fallbacks).length > 0) (definition.fallbacks ??= {}).nodes = { ...definition.fallbacks?.nodes, ...fallbacks };
+    }));
+    return { root_id: mapped(source[0].id), field_ids: fields.map((field) => field.id), id_map: Object.fromEntries(map) };
   }
 
   add_field_from_descriptor(

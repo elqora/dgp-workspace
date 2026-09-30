@@ -43,6 +43,7 @@ export interface MemoryWorkspaceSnapshot {
   services: HandlerService[];
   policy_rules: ServicePublicationPolicyRule[];
   branches: WorkspaceBranchData[];
+  global_templates?: FieldTemplate[];
   sequence: number;
 }
 
@@ -58,6 +59,7 @@ export class MemoryWorkspaceBackend implements WorkspaceBackend {
   readonly #services: HandlerService[];
   readonly #policyRules: ServicePublicationPolicyRule[];
   readonly #branches = new Map<string, WorkspaceBranchData>();
+  readonly #globalTemplates: FieldTemplate[] = [];
   readonly #now: () => string;
   readonly #persistence: MemoryWorkspacePersistence | undefined;
   readonly #onPersistenceError: ((error: unknown) => void) | undefined;
@@ -96,13 +98,22 @@ export class MemoryWorkspaceBackend implements WorkspaceBackend {
       Object.assign(this.#permissions, structuredClone(stored.permissions));
       this.#services.splice(0, this.#services.length, ...structuredClone(stored.services));
       this.#policyRules.splice(0, this.#policyRules.length, ...structuredClone(stored.policy_rules));
-      this.#branches.clear(); for (const branch of stored.branches) this.#branches.set(branch.branch.id, structuredClone(branch));
+      this.#branches.clear();
+      this.#globalTemplates.splice(0, this.#globalTemplates.length, ...structuredClone(stored.global_templates ?? []));
+      for (const branch of stored.branches) {
+        const copy = structuredClone(branch);
+        for (const template of copy.templates.filter((item) => item.branch_id === null)) {
+          if (!this.#globalTemplates.some((item) => item.id === template.id)) this.#globalTemplates.push(template);
+        }
+        copy.templates = copy.templates.filter((item) => item.branch_id !== null);
+        this.#branches.set(copy.branch.id, copy);
+      }
       this.#sequence = stored.sequence;
     } catch (caught) { this.#onPersistenceError?.(caught); }
   }
 
   snapshot(): MemoryWorkspaceSnapshot {
-    return structuredClone({ workspace_id: this.#workspaceId, authors: this.#authors, permissions: this.#permissions, services: this.#services, policy_rules: this.#policyRules, branches: [...this.#branches.values()], sequence: this.#sequence });
+    return structuredClone({ workspace_id: this.#workspaceId, authors: this.#authors, permissions: this.#permissions, services: this.#services, policy_rules: this.#policyRules, branches: [...this.#branches.values()], global_templates: this.#globalTemplates, sequence: this.#sequence });
   }
   async #persist(): Promise<void> { if (this.#persistence !== undefined) try { await this.#persistence.save(this.snapshot()); } catch (caught) { this.#onPersistenceError?.(caught); } }
 
@@ -117,14 +128,14 @@ export class MemoryWorkspaceBackend implements WorkspaceBackend {
     return ok({
       workspace_id: this.#workspaceId, authors: this.#authors,
       permissions: this.#permissions, branches: [...this.#branches.values()].map((item) => item.branch),
-      current_branch_id: current.branch.id, services: this.#services, policy_rules: this.#policyRules, current,
+      current_branch_id: current.branch.id, services: this.#services, policy_rules: this.#policyRules, current: this.#withGlobalTemplates(current),
     });
   }
 
   async load_branch(branchId: string): Promise<BackendResult<WorkspaceBranchData>> {
     await this.#ready;
     const branch = this.#branch(branchId);
-    return branch === undefined ? fail("branch_not_found", `Branch ${branchId} was not found.`) : ok(branch);
+    return branch === undefined ? fail("branch_not_found", `Branch ${branchId} was not found.`) : ok(this.#withGlobalTemplates(branch));
   }
 
   async load_commit(branchId: string, commitId: string): Promise<BackendResult<WorkspaceCommit>> {
@@ -198,13 +209,13 @@ export class MemoryWorkspaceBackend implements WorkspaceBackend {
     const data: WorkspaceBranchData = {
       branch: { id, name, main: false, created_at: this.#now(), created_by: actorId, meta: {} },
       definition: structuredClone(source.definition), editorial_state: structuredClone(source.editorial_state), head: source.head === null ? null : { ...structuredClone(source.head), branch_id: id },
-      draft: null, templates: structuredClone(source.templates), participants: [], comments: [],
+      draft: null, templates: [], participants: [], comments: [],
       commits: structuredClone(source.commits),
       revision: source.revision,
     };
     this.#branches.set(id, data);
     await this.#persist();
-    return ok(data);
+    return ok(this.#withGlobalTemplates(data));
   }
 
   async set_main(branchId: string): Promise<BackendResult<WorkspaceBranch>> {
@@ -242,22 +253,34 @@ export class MemoryWorkspaceBackend implements WorkspaceBackend {
 
   async save_template(template: FieldTemplate): Promise<BackendResult<FieldTemplate>> {
     await this.#ready;
-    const branchId = template.branch_id ?? "main";
-    const branch = this.#branch(branchId);
-    if (branch === undefined) return fail("branch_not_found", `Branch ${branchId} was not found.`);
-    const duplicate = branch.templates.find((item) => item.key === template.key && item.id !== template.id);
+    const branch = template.branch_id === null ? undefined : this.#branch(template.branch_id);
+    if (template.branch_id !== null && branch === undefined) return fail("branch_not_found", `Branch ${template.branch_id} was not found.`);
+    const conflicting = template.branch_id === null
+      ? [...this.#globalTemplates, ...[...this.#branches.values()].flatMap((item) => item.templates)]
+      : [...this.#globalTemplates, ...(branch?.templates ?? [])];
+    const duplicate = conflicting.find((item) => item.key === template.key && item.id !== template.id);
     if (duplicate !== undefined) return fail("template_key_conflict", `Template key ${template.key} is already in use.`);
     const saved = { ...structuredClone(template), id: template.id || this.#id("template"), updated_at: this.#now() };
-    branch.templates = [...branch.templates.filter((item) => item.id !== saved.id), saved];
+    for (const item of this.#branches.values()) item.templates = item.templates.filter((entry) => entry.id !== saved.id);
+    const oldGlobal = this.#globalTemplates.findIndex((item) => item.id === saved.id);
+    if (oldGlobal >= 0) this.#globalTemplates.splice(oldGlobal, 1);
+    if (branch === undefined) this.#globalTemplates.push(saved);
+    else branch.templates.push(saved);
     await this.#persist();
     return ok(saved);
   }
 
   async delete_template(templateId: string): Promise<BackendResult<void>> {
     await this.#ready;
+    const globalIndex = this.#globalTemplates.findIndex((item) => item.id === templateId);
+    if (globalIndex >= 0) this.#globalTemplates.splice(globalIndex, 1);
     for (const branch of this.#branches.values()) branch.templates = branch.templates.filter((item) => item.id !== templateId);
     await this.#persist();
     return ok(undefined);
+  }
+
+  #withGlobalTemplates(branch: WorkspaceBranchData): WorkspaceBranchData {
+    return { ...branch, templates: [...this.#globalTemplates, ...branch.templates] };
   }
 
   async save_comment(thread: CommentThread): Promise<BackendResult<CommentThread>> {

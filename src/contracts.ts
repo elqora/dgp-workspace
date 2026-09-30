@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
-import type { HandlerService, ProductDefinition, ProductField } from "@elqora/dgp-spec";
+import type { HandlerService, ProductDefinition, ProductField, ProductNotice, ServiceFallbacks } from "@elqora/dgp-spec";
 import type { PublicationValidationResult, ServicePublicationPolicyRule } from "@elqora/dgp-validation";
 
 export interface BackendError {
@@ -60,6 +60,10 @@ export interface FieldTemplate {
   key: string;
   name: string;
   field: ProductField;
+  connected_fields?: ProductField[];
+  relationships?: Pick<ProductDefinition, "includes_for_buttons" | "excludes_for_buttons" | "option_effects_for_buttons" | "value_effects_for_triggers">;
+  notices?: ProductNotice[];
+  fallbacks?: Pick<ServiceFallbacks, "nodes">;
   branch_id: string | null;
   published: boolean;
   updated_at: string;
