@@ -311,6 +311,53 @@ describe("WorkspaceRuntime", () => {
     expect(runtime.state.definition?.fields.some((field) => field.id === right.choice)).toBe(true);
   });
 
+  it("captures a selected field subset and properties without dangling references", async () => {
+    const product = definition();
+    product.fields = [
+      { id: "root-field", type: "select", label: "Root", description: "Omit this", default_value: "option-a", options: [{ id: "option-a", label: "A" }] },
+      { id: "keep", type: "text", label: "Keep", bind_id: "option-a", description: "Also omit" },
+      { id: "drop", type: "text", label: "Drop", bind_id: "option-a" },
+    ];
+    product.includes_for_buttons = { "option-a": ["keep", "drop"] };
+    product.notices = [{ id: "note", type: "public", kind: "label", severity: "info", target: { scope: "node", node_kind: "option", node_id: "option-a" }, title: "Help" }];
+    product.fallbacks = { nodes: { "option-a": ["service-1"] } };
+    const runtime = new WorkspaceRuntime(new MemoryWorkspaceBackend({ definition: product }), { actor, auto_autosave: false });
+    await runtime.boot();
+    const captured = runtime.capture_field_template("root-field", {
+      include_connected: true,
+      field_ids: ["root-field", "keep"],
+      property_keys: { "root-field": ["id", "type", "label"], keep: ["id", "type", "label", "bind_id"] },
+    });
+    expect(captured.ok).toBe(true); if (!captured.ok) return;
+    expect(captured.value.field).toEqual({ id: "root-field", type: "select", label: "Root" });
+    expect(captured.value.connected_fields).toEqual([{ id: "keep", type: "text", label: "Keep" }]);
+    expect(captured.value.relationships?.includes_for_buttons).toEqual({});
+    expect(captured.value.notices).toBeUndefined();
+    expect(captured.value.fallbacks).toBeUndefined();
+    const saved = await runtime.create_template({ key: "selected", name: "Named template", group_label: "Separate group", branch_id: "main", published: false, ...captured.value, meta: {} });
+    expect(saved).toMatchObject({ ok: true, value: { group_label: "Separate group" } });
+    if (!saved.ok) return;
+    const copy = await runtime.clone_template({ id: saved.value.id }, { key: "selected-copy" });
+    expect(copy).toMatchObject({ ok: true, value: { group_label: "Separate group" } });
+    const first = runtime.instantiate_template(saved.value.id);
+    const second = runtime.instantiate_template(saved.value.id);
+    expect(first.ok && second.ok).toBe(true); if (!first.ok || !second.ok) return;
+    expect(first.value.field_ids).toHaveLength(2);
+    expect(first.value.id_map["root-field"]).not.toBe(second.value.id_map["root-field"]);
+    expect(first.value.id_map.keep).not.toBe(second.value.id_map.keep);
+    expect(first.value.id_map.drop).toBeUndefined();
+  });
+
+  it("rejects invalid selective template capture with a structured error", async () => {
+    const product = definition();
+    product.fields = [{ id: "x", type: "text", label: "X" }, { id: "other", type: "text", label: "Other" }];
+    const runtime = new WorkspaceRuntime(new MemoryWorkspaceBackend({ definition: product }), { actor, auto_autosave: false });
+    await runtime.boot();
+    expect(runtime.capture_field_template("x", { field_ids: ["missing"] })).toMatchObject({ ok: false, error: { code: "template_invalid" } });
+    expect(runtime.capture_field_template("x", { field_ids: ["x", "other"] })).toMatchObject({ ok: false, error: { code: "template_invalid" } });
+    expect(runtime.capture_field_template("x", { field_ids: ["x"], property_keys: { x: ["id", "type"] } })).toMatchObject({ ok: false, error: { code: "template_invalid" } });
+  });
+
   it("keeps global templates visible across branches and preserves explicit global clone scope", async () => {
     const backend = new MemoryWorkspaceBackend({ definition: definition() });
     const runtime = new WorkspaceRuntime(backend, { actor, auto_autosave: false }); await runtime.boot();

@@ -42,6 +42,12 @@ export interface DuplicateOptions {
   option_id?: (old: string) => string;
 }
 
+export interface TemplateCaptureOptions {
+  include_connected?: boolean;
+  field_ids?: string[];
+  property_keys?: Record<string, string[]>;
+}
+
 interface CatalogNodeBase {
   id: string;
   label: string;
@@ -469,7 +475,9 @@ export class Editor {
     return id;
   }
 
-  capture_template(rootId: string, includeConnected = false): Pick<FieldTemplate, "field" | "connected_fields" | "relationships" | "notices" | "fallbacks"> {
+  capture_template(rootId: string, input: boolean | TemplateCaptureOptions = false): Pick<FieldTemplate, "field" | "connected_fields" | "relationships" | "notices" | "fallbacks"> {
+    const options = typeof input === "boolean" ? { include_connected: input } : input;
+    const includeConnected = options.include_connected ?? options.field_ids !== undefined;
     const definition = this.#builder.definition;
     const root = definition.fields.find((field) => field.id === rootId);
     if (root === undefined) throw new Error(`Unknown template root field ${rootId}.`);
@@ -495,8 +503,46 @@ export class Editor {
       const queue = [rootId];
       for (let i = 0; i < queue.length; i++) for (const next of edges.get(queue[i] as string) ?? []) if (!selected.has(next)) { selected.add(next); queue.push(next); }
     }
-    const fields = definition.fields.filter((field) => selected.has(field.id));
-    const selectedIds = new Set([...owner].filter(([, fieldId]) => selected.has(fieldId)).map(([id]) => id));
+    if (options.field_ids !== undefined) {
+      const requested = new Set(options.field_ids);
+      if (!requested.has(rootId)) throw new Error("The template root field must be selected.");
+      for (const id of requested) if (!selected.has(id)) throw new Error(`Field ${id} is not connected to the template root.`);
+      selected.clear();
+      for (const id of requested) selected.add(id);
+    }
+    for (const id of Object.keys(options.property_keys ?? {})) if (!selected.has(id)) throw new Error(`Property selection references unselected field ${id}.`);
+    const fields = definition.fields.filter((field) => selected.has(field.id)).map((field) => {
+      const keys = options.property_keys?.[field.id];
+      if (keys === undefined) return clone(field);
+      const chosen = new Set(keys);
+      for (const key of ["id", "type", "label"]) if (!chosen.has(key)) throw new Error(`Field ${field.id} requires property ${key}.`);
+      for (const key of chosen) if (!(key in field)) throw new Error(`Field ${field.id} has no property ${key}.`);
+      const projected = Object.fromEntries(Object.entries(field).filter(([key]) => chosen.has(key))) as ProductField;
+      if (projected.button !== true) delete (projected as ProductField & { service_id?: string }).service_id;
+      return projected;
+    });
+    const referencesDroppedOption = (value: JsonValue, fieldId: string, retained: ReadonlySet<string>): boolean => {
+      if (typeof value === "string") return owner.get(value) === fieldId && !retained.has(value);
+      if (Array.isArray(value)) return value.some((entry) => referencesDroppedOption(entry, fieldId, retained));
+      return false;
+    };
+    const selectedIds = new Set<string>();
+    for (const field of fields) {
+      selectedIds.add(field.id);
+      const visit = (items: readonly FieldOption[]): void => { for (const item of items) { selectedIds.add(item.id); visit(item.children ?? []); } };
+      visit(field.options ?? []);
+      if (field.bind_id !== undefined) {
+        const ids = (Array.isArray(field.bind_id) ? field.bind_id : [field.bind_id]).filter((id) => selected.has(owner.get(id) ?? ""));
+        if (ids.length === 0) delete field.bind_id;
+        else field.bind_id = Array.isArray(field.bind_id) ? ids : ids[0] as string;
+      }
+      if (field.default_value !== undefined && referencesDroppedOption(field.default_value, field.id, selectedIds)) delete field.default_value;
+    }
+    for (const field of fields) if (field.bind_id !== undefined) {
+      const ids = (Array.isArray(field.bind_id) ? field.bind_id : [field.bind_id]).filter((id) => selectedIds.has(id));
+      if (ids.length === 0) delete field.bind_id;
+      else field.bind_id = Array.isArray(field.bind_id) ? ids : ids[0] as string;
+    }
     const retain = (input: Record<string, string[]>): Record<string, string[]> => {
       const output: Record<string, string[]> = {};
       for (const [id, targets] of Object.entries(input)) {
@@ -521,14 +567,17 @@ export class Editor {
     for (const [source, targets] of Object.entries(definition.value_effects_for_triggers)) {
       if (!selectedIds.has(source)) continue;
       const kept: Record<string, FieldValueEffect> = {};
-      for (const [target, effect] of Object.entries(targets)) if (selectedIds.has(target)) kept[target] = clone(effect);
+      for (const [target, effect] of Object.entries(targets)) if (selectedIds.has(target)) {
+        const droppedOption = referencesDroppedOption(effect.value, owner.get(target) ?? "", selectedIds);
+        if (!droppedOption) kept[target] = clone(effect);
+      }
       if (Object.keys(kept).length > 0) valueEffects[source] = kept;
     }
     const notices = definition.notices.filter((notice) => notice.target.scope === "node" && selectedIds.has(notice.target.node_id));
     const nodes = Object.fromEntries(Object.entries(definition.fallbacks?.nodes ?? {}).filter(([id]) => selectedIds.has(id)));
     return {
-      field: clone(root),
-      ...(fields.length > 1 ? { connected_fields: clone(fields.filter((field) => field.id !== rootId)) } : {}),
+      field: fields.find((field) => field.id === rootId) as ProductField,
+      ...(fields.length > 1 ? { connected_fields: fields.filter((field) => field.id !== rootId) } : {}),
       relationships: { includes_for_buttons: retain(definition.includes_for_buttons), excludes_for_buttons: retain(definition.excludes_for_buttons), option_effects_for_buttons: optionEffects, value_effects_for_triggers: valueEffects },
       ...(notices.length > 0 ? { notices: clone(notices) } : {}),
       ...(Object.keys(nodes).length > 0 ? { fallbacks: { nodes: clone(nodes) } } : {}),

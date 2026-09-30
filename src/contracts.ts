@@ -59,6 +59,7 @@ export interface FieldTemplate {
   id: string;
   key: string;
   name: string;
+  group_label?: string;
   field: ProductField;
   connected_fields?: ProductField[];
   relationships?: Pick<ProductDefinition, "includes_for_buttons" | "excludes_for_buttons" | "option_effects_for_buttons" | "value_effects_for_triggers">;

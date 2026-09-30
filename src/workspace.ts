@@ -428,10 +428,10 @@ export class WorkspaceRuntime {
     return saved;
   }
 
-  capture_field_template(rootId: string, includeConnected = false): BackendResult<Pick<FieldTemplate, "field" | "connected_fields" | "relationships" | "notices" | "fallbacks">> {
+  capture_field_template(rootId: string, options: boolean | import("./editor.js").TemplateCaptureOptions = false): BackendResult<Pick<FieldTemplate, "field" | "connected_fields" | "relationships" | "notices" | "fallbacks">> {
     if (!this.#authorized("template.write")) return denied("template.write");
     if (this.editor === undefined) return { ok: false, error: error("document_missing", "No editable document is loaded.") };
-    try { return { ok: true, value: this.editor.capture_template(rootId, includeConnected) }; }
+    try { return { ok: true, value: this.editor.capture_template(rootId, options) }; }
     catch (caught) { return { ok: false, error: error("template_invalid", caught instanceof Error ? caught.message : "Cannot capture template.") }; }
   }
 
