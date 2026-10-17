@@ -26,7 +26,7 @@
   },
   "dependencies": {
     "@elqora/dgp-core": "github:elqora/dgp-core#bb06a70",
-    "@elqora/dgp-spec": "github:elqora/dgp-spec#6300c59",
+    "@elqora/dgp-spec": "github:elqora/dgp-spec#4f8b6387e3eb35de3d2b55c779a8a67cbc4223b",
     "@elqora/dgp-validation": "github:elqora/dgp-validation#86ebeab"
   },
   "devDependencies": {
