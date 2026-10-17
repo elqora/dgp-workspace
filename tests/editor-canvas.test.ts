@@ -229,8 +229,15 @@ describe("Editor canonical mutations", () => {
     editor.set_field_quantity("name", { value_by: "eval", expression: { language: "javascript", body: "return values.length" }, fallback: 1 });
     expect(editor.get_field_quantity("name")).toMatchObject({ value_by: "eval", expression: { body: "return values.length" }, fallback: 1 });
 
-    editor.set_field_validation("name", [{ op: "bogus" }, { op: "gte", value_by: "length", value: 2, unknown: true }, { op: "eq", value: Number.NaN }]);
-    expect(editor.get_field_validation("name")).toEqual([{ op: "gte", value_by: "length", value: 2 }, { op: "eq" }]);
+    editor.set_field_validation("name", [
+      { op: "bogus" },
+      { op: "gte", value_by: "length", value: 2, error_message_on: "change", unknown: true },
+      { op: "eq", value: Number.NaN, error_message_on: "blur" },
+    ]);
+    expect(editor.get_field_validation("name")).toEqual([
+      { op: "gte", value_by: "length", value: 2, error_message_on: "change" },
+      { op: "eq" },
+    ]);
     editor.set_field_validation("name", { op: "truthy" }); expect(builder.index.getField("name")?.validation).toEqual([{ op: "truthy" }]);
     editor.set_field_validation("name", { op: "eq", value_by: "eval", expression: { language: "javascript", body: "" } }); expect(editor.get_field_validation("name")).toBeUndefined();
   });

@@ -182,6 +182,7 @@ function normalizeValidationRule(input: unknown): FieldValidationRule | undefine
   const valueMode = value.value_by === "value" || value.value_by === "length" || value.value_by === "eval" ? value.value_by : undefined;
   const shared: Record<string, unknown> = { op: value.op };
   if (valueMode !== undefined) shared.value_by = valueMode;
+  if (value.error_message_on === "submit" || value.error_message_on === "change") shared.error_message_on = value.error_message_on;
   if (Object.hasOwn(value, "value") && jsonValue(value.value)) shared.value = clone(value.value);
   if (typeof value.min === "number" && Number.isFinite(value.min)) shared.min = value.min;
   if (typeof value.max === "number" && Number.isFinite(value.max)) shared.max = value.max;
